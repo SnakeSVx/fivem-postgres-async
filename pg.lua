@@ -15,7 +15,7 @@ local function safeParameters(params)
     return params
 end
 
-local function query(query, callback, params)
+local function queryFun(query, callback, params)
     assert(type(query) == "string", "The SQL Query must be a string")
     exports['pg-async']:pg_query(
         query,
@@ -24,11 +24,11 @@ local function query(query, callback, params)
     );
 end
 
-PgSql.Async.query = query;
+PgSql.Async.query = queryFun;
 
 function PgSql.Sync.query(query, params)
     local finishedQuery, res, err = false, nil, nil
-    query(
+    queryFun(
         query,
         function(error, result)
             res = result;
@@ -38,11 +38,11 @@ function PgSql.Sync.query(query, params)
         safeParameters(params)
     );
     repeat Citizen.Wait(0) until finishedQuery == true
-    return res,error;
+    return err,res;
 end
 
 local function transaction(queries, callback) 
-    assert(type(queries) == "tables", "The SQL Queries must be in a table")
+    assert(type(queries) == "table", "The SQL Queries must be in a table")
     exports['pg-async']:pg_transaction(
         queries,
         callback
@@ -62,7 +62,7 @@ function PgSql.Sync.transaction(queries)
         end
     );
     repeat Citizen.Wait(0) until finishedQuery == true
-    return res,error;
+    return err,res;
 end
 
 function PgSql.ready(callback)
