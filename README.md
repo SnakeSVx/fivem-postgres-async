@@ -9,7 +9,7 @@ Allows the use of a postgres database on the fivem-server software.
 3. Add the following to the server.cfg: ensure pg-async
 4. Add the following to the fxmanifest.lua of your own code
    *  dependencies { ..other-deps.., 'pg-async')
-   *  server_scripts { '@pg-async/pg.lua', ..your_scripts.. } **
+   *  server_scripts { '@pg-async/pg.lua', ..your_scripts.. }
 5. Usage
    * PgSql.Sync
      - For synchronous methods
@@ -27,6 +27,7 @@ Allows the use of a postgres database on the fivem-server software.
        * (optional) callback method (err: string, result: table), See Dependencies for more info  
     * PgSql.ready(callback), will be called when everything is ready
     * PgSql.format (wrapper for pg-format)
+    * Alternative: check pg.lua if you want to call the js code directly.
 
 ## Dependencies
 
