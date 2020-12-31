@@ -1,4 +1,4 @@
-local assert, next, type = assert, next, type
+local assert, table, type, pairs = assert, table, type, pairs
 
 PgSql = {
     Async = {},
@@ -9,28 +9,63 @@ local function safeParameters(params)
     if nil == params then
         return nil
     end
-
     assert(type(params) == "table", "A table is expected")
-
     return params
 end
 
-local function queryFun(query, callback, params)
+local function createTransform(callback)
+    local cb;
+    if callback then
+        cb = function(err, result)
+            if result then
+                callback(err, result.rows)
+            else 
+                callback(err)
+            end
+        end
+    end
+    return cb;
+end
+
+local function executeFun(query, callback, params)
     assert(type(query) == "string", "The SQL Query must be a string")
     exports['pg-async']:pg_query(
-        query,
-        callback,
-        safeParameters(params)
+            query,
+            callback,
+            safeParameters(params)
     );
 end
 
+local function queryFun(query, callback, params)
+    executeFun(query, createTransform(callback), params)
+end
+
+local function executeAllFun(queries)
+    assert(type(queries) == "table", "The queries must be a table")
+    exports['pg-async']:pg_queries(
+            queries
+    );
+end
+
+local function queriesFun(queries)
+    assert(type(queries) == "table", "The queries must be a table")
+    for _, v in pairs(queries) do
+        v.callback = createTransform(v.callback)
+    end
+    executeAllFun(queries)
+end
+
+PgSql.Async.execute = executeFun
+PgSql.Async.executeAll = executeAllFun
 PgSql.Async.query = queryFun;
+PgSql.Async.queries = queriesFun;
 
 function PgSql.Sync.query(query, params)
     local finishedQuery, res, err = false, nil, nil
     queryFun(
         query,
         function(error, result)
+            RPGF.log.debug(error, result);
             res = result;
             err = error;
             finishedQuery = true;
@@ -41,19 +76,28 @@ function PgSql.Sync.query(query, params)
     return err,res;
 end
 
-local function transaction(queries, callback) 
+local function transactional(queries, callback) 
     assert(type(queries) == "table", "The SQL Queries must be in a table")
-    exports['pg-async']:pg_transaction(
-        queries,
-        callback
+    exports['pg-async']:pg_transactional(
+            queries,
+            callback
     );
 end
 
-PgSql.Async.transaction = transaction;
+local function transactionalUnordered(queries, callback)
+    assert(type(queries) == "table", "The SQL Queries must be in a table")
+    exports['pg-async']:pg_transactional_unordered(
+            queries,
+            callback
+    );
+end
 
-function PgSql.Sync.transaction(queries)
+PgSql.Async.transactional = transactional;
+PgSql.Async.transactionalUnordered = transactionalUnordered;
+
+function PgSql.Sync.transactional(queries)
     local finishedQuery, res, err = false, nil, nil
-    transaction(
+    transactional(
         queries,
         function(error, result)
             res = result;
@@ -76,4 +120,8 @@ function PgSql.ready(callback)
         end
         callback()
     end)
+end
+
+function PgSql.format(query, ...)
+    return exports['pg-async']:pg_format(query, table.unpack(table.pack(...)))
 end

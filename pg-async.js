@@ -9619,38 +9619,38 @@ var format = __webpack_require__(2571);
 // https://node-postgres.com/features/connecting
 const config = {
   connectionString: GetConvar('postgres_connection_string', ''),
-  application_name: 'fivem-server',
-  max: 20,
-  // set pool max size to 20
-  idleTimeoutMillis: 1000,
+  application_name: GetConvar('postgres_connection_name', 'fivem-server'),
+  max: GetConvarInt('postgres_pool_max', 10),
+  // set pool max size to 10
+  idleTimeoutMillis: GetConvarInt('postgres_pool_timeout_idle', 1000),
   // close idle clients after 1 second
-  connectionTimeoutMillis: 1000 // return an error after 1 second if connection could not be established
+  connectionTimeoutMillis: GetConvarInt('postgres_pool_timeout_connection', 1000) // return an error after 1 second if connection could not be established
 
 };
-console.log("pg db config", config);
 const pool = new pg__WEBPACK_IMPORTED_MODULE_0__.Pool(config);
+const libName = 'pg-async';
 pool.on('error', (err, client) => {
-  console.error('Unexpected error on idle client', err);
+  console.error(libName, 'Unexpected error on idle client', err);
 });
 pool.on('connect', client => {
-  console.log('new client created');
+  console.log(libName, 'new client created');
 });
 pool.on('acquire', client => {
-  console.log('new client acquired');
+  console.log(libName, 'new client acquired');
 });
 pool.on('remove', client => {
-  console.log('client removed');
+  console.log(libName, 'client removed');
 });
 let isReady = false;
 global.exports('is_ready', () => isReady);
 on('onResourceStart', resourcename => {
-  if (resourcename === 'pg-async') {
+  if (resourcename === libName) {
     emit('onPostgresReady');
     isReady = true;
   }
 });
 on('onResourceStop', resourcename => {
-  if (resourcename === 'pg-async') {
+  if (resourcename === libName) {
     emit('onPostgresStopped');
     isReady = false;
     pool.end();
@@ -9664,14 +9664,23 @@ global.exports('pg_query', (query, callback, parameters) => {
   };
   pool.query(queryConfig, callback);
 });
-global.exports('pg_transaction', (queries, callback) => {
+global.exports('pg_queries', queries => {
+  queries.forEach(element => {
+    const queryConfig = {
+      text: element.query,
+      values: element.parameters
+    };
+    pool.query(queryConfig, element.callback);
+  });
+});
+global.exports('pg_transactional', (queries, callback) => {
   pool.connect((err, client, done) => {
     const shouldAbort = (err, cb) => {
       if (err) {
-        console.error('Error in transaction', err.stack);
+        console.error(libName, 'Error in transaction', err.stack);
         client.query('ROLLBACK', err => {
           if (err) {
-            console.error('Error rolling back client', err.stack);
+            console.error(libName, 'Error rolling back client', err.stack);
           } // release the client back to the pool
 
 
@@ -9707,7 +9716,7 @@ global.exports('pg_transaction', (queries, callback) => {
         } else {
           client.query('COMMIT', err => {
             if (err) {
-              console.error('Error committing transaction', err.stack);
+              console.error(libName, 'Error committing transaction', err.stack);
             }
 
             done();
@@ -9717,6 +9726,65 @@ global.exports('pg_transaction', (queries, callback) => {
       };
 
       execute(0);
+    });
+  });
+});
+global.exports('pg_transactional_unordered', (queries, callback) => {
+  pool.connect((err, client, done) => {
+    let transactionDone = false;
+
+    const shouldAbort = (err, cb) => {
+      if (err) {
+        if (!transactionDone) {
+          transactionDone = true;
+          console.error(libName, 'Error in transaction', err.stack);
+          client.query('ROLLBACK', err => {
+            if (err) {
+              console.error(libName, 'Error rolling back client', err.stack);
+            } // release the client back to the pool
+
+
+            done();
+            callback(err);
+          });
+        }
+
+        if (cb) {
+          cb(err);
+        }
+      }
+
+      return !!err;
+    };
+
+    client.query('BEGIN', err => {
+      if (shouldAbort(err)) return;
+      let finished = 0;
+      queries.forEach(element => {
+        const queryConfig = {
+          text: element.query,
+          values: element.parameters
+        };
+        client.query(queryConfig).then(result => {
+          finished = finished + 1;
+
+          if (!transactionDone && finished === queries.length) {
+            transactionDone = true;
+            client.query('COMMIT', err => {
+              if (err) {
+                console.error(libName, 'Error committing transaction', err.stack);
+              }
+
+              done();
+              callback(err);
+            });
+          }
+
+          if (element.callback) {
+            element.callback(null, result);
+          }
+        }).catch(err => shouldAbort(err, element.callback));
+      });
     });
   });
 });
